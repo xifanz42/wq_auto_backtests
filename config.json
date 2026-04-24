@@ -18,7 +18,7 @@
                     "data_coverage_filter": [null, null],
                     "coverage_filter": [null, null],
                     "user_count_filter": [null, null],
-                    "field_name_patterns": ["^vwap$"],
+                    "field_name_patterns": ["^vwap$", "^close$"],
                     "field_name_exclude_patterns": null,
                     "description_patterns": null,
                     "description_exclude_patterns": null
@@ -65,7 +65,9 @@
             "alpha_templates": [
                 "-group_rank(ts_corr(ts_delta({datafield}, 1), ts_delta(volume, 1), 10), sector)",
                 "-group_rank(ts_corr({datafield}, volume, 15), sector)",
-                "-group_rank(ts_corr(vwap, volume, 10), sector)"
+                "-group_rank(ts_corr(vwap, volume, 10), sector)",
+                "-group_rank(ts_corr(vwap, volume, 15), sector)",
+                "-group_rank(ts_corr(returns, volume, 10), sector)"
             ],
             "simulation_settings": {
                 "instrumentType": "EQUITY",
@@ -94,7 +96,7 @@
                     "data_coverage_filter": [null, null],
                     "coverage_filter": [null, null],
                     "user_count_filter": [null, null],
-                    "field_name_patterns": ["^close$"],
+                    "field_name_patterns": ["^close$","^vwap$"],
                     "field_name_exclude_patterns": null,
                     "description_patterns": null,
                     "description_exclude_patterns": null
@@ -199,5 +201,5 @@
 
     ],
 
-    "save_interval": 10
+    "save_interval": 3
 }

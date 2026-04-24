@@ -4,6 +4,7 @@ import os
 import json
 import sqlite3
 import pandas as pd
+import requests
 
 
 def get_alpha_quality(fitness, delay=1):
@@ -16,13 +17,13 @@ def get_alpha_quality(fitness, delay=1):
         return "Unknown"
 
     if d == 0:
-        if f > 3.25:  return "Spectacular"
+        if f > 3.25:   return "Spectacular"
         elif f > 2.60: return "Excellent"
         elif f > 1.95: return "Good"
         elif f > 1.30: return "Average"
         else:          return "Needs Improvement"
     else:
-        if f > 2.50:  return "Spectacular"
+        if f > 2.50:   return "Spectacular"
         elif f > 2.00: return "Excellent"
         elif f > 1.50: return "Good"
         elif f > 1.00: return "Average"
@@ -37,6 +38,45 @@ def format_time(seconds):
     if h > 0:
         return f"{int(h)}h {int(m)}min {int(s)}s"
     return f"{int(m)}min {int(s)}s"
+
+
+# ── Bug Fix 1: SQLite schema migration helper ────────────────────────────────
+def _ensure_db_schema(conn, df):
+    """
+    If the table 'alphas_tested' already exists but is missing columns that are
+    present in df, add those columns via ALTER TABLE before writing.
+    This prevents the 'table has no column named X' crash when new fields are
+    added to the result rows.
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='alphas_tested'"
+    )
+    table_exists = cursor.fetchone() is not None
+
+    if not table_exists:
+        # Table doesn't exist yet — pandas will create it correctly on first write.
+        return
+
+    # Table exists: check which columns are present.
+    cursor.execute("PRAGMA table_info(alphas_tested)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+
+    for col in df.columns:
+        if col not in existing_cols:
+            # Infer a safe SQLite type from the pandas dtype.
+            dtype = df[col].dtype
+            if pd.api.types.is_integer_dtype(dtype):
+                sql_type = "INTEGER"
+            elif pd.api.types.is_float_dtype(dtype):
+                sql_type = "REAL"
+            else:
+                sql_type = "TEXT"
+            print(f"   🛠  DB schema: adding missing column '{col}' ({sql_type})")
+            cursor.execute(
+                f"ALTER TABLE alphas_tested ADD COLUMN {col} {sql_type}"
+            )
+    conn.commit()
 
 
 def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=None):
@@ -56,7 +96,7 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
     breaker_info   = None
     total          = len(alpha_list)
 
-    # ── Storage helpers ──────────────────────────────────────────────────────
+    # ── Storage helper ───────────────────────────────────────────────────────
     def flush_to_storage(batch):
         if not batch:
             return
@@ -65,9 +105,10 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
         df = pd.DataFrame(batch)
 
-        # SQLite
+        # SQLite — schema-safe write (Bug Fix 1)
         db_path = os.path.join(results_dir, 'alpha_history.db')
         conn = sqlite3.connect(db_path)
+        _ensure_db_schema(conn, df)          # <-- adds missing columns before write
         df.to_sql('alphas_tested', conn, if_exists='append', index=False)
         conn.close()
 
@@ -77,6 +118,24 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
         print(f"   💾 CHECKPOINT: saved {len(batch)} results to DB + CSV.")
 
+    # ── Bug Fix 2: re-authenticate on 401, not just on timer ─────────────────
+    def ensure_authed(response):
+        """
+        If the response is 401 Unauthorized, re-authenticate immediately and
+        return a fresh session.  Returns the (possibly same) session object.
+        """
+        nonlocal sess, session_start
+        if response.status_code == 401 and authenticate_callback:
+            print("🔐 401 Unauthorized — token expired. Re-authenticating immediately...")
+            new_sess = authenticate_callback()
+            if new_sess:
+                sess          = new_sess
+                session_start = time.time()
+                print("✅ Re-authentication successful.")
+            else:
+                print("❌ Re-authentication failed. Requests may continue to fail.")
+        return sess
+
     # ── Main loop ────────────────────────────────────────────────────────────
     print(f"\nStarting simulation loop — {total} alpha(s) queued. "
           f"Checkpoint every {save_interval}.\n")
@@ -84,12 +143,12 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
     try:
         for count, alpha in enumerate(alpha_list, 1):
 
-            # Session refresh every 3.5 hours
+            # Timer-based session refresh (Belt-and-suspenders, keep it)
             if authenticate_callback and (time.time() - session_start > 3.5 * 3600):
                 print("🔄 Session timeout approaching — re-authenticating...")
                 new_sess = authenticate_callback()
                 if new_sess:
-                    sess         = new_sess
+                    sess          = new_sess
                     session_start = time.time()
                     print("✅ Re-authentication successful.")
 
@@ -103,13 +162,55 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
             alpha_start = time.time()
 
-            sim_resp = sess.post(
-                'https://api.worldquantbrain.com/simulations',
-                json=api_payload,
-            )
+            # ── Submit simulation ────────────────────────────────────────────
+            try:
+                sim_resp = sess.post(
+                    'https://api.worldquantbrain.com/simulations',
+                    json=api_payload,
+                )
+            except requests.exceptions.ProxyError as proxy_err:
+                # Bug Fix 3a: Proxy / network errors — wait and retry once,
+                # do NOT count toward the circuit-breaker.
+                print(f"   ⚠️  Proxy error (network): {proxy_err}")
+                print("   ⏳ Waiting 30s before retrying this alpha...")
+                time.sleep(30)
+                try:
+                    sim_resp = sess.post(
+                        'https://api.worldquantbrain.com/simulations',
+                        json=api_payload,
+                    )
+                except Exception as retry_exc:
+                    print(f"   ❌ Retry also failed: {retry_exc}. Skipping this alpha.")
+                    results.append({
+                        "expression":  expression,
+                        "group_label": group_label,
+                        "alpha_id":    None,
+                        "status":      "FAILED_NETWORK",
+                    })
+                    continue
 
             try:
-                # ── Submission error ─────────────────────────────────────────
+                # ── Bug Fix 3b: 401 — token expired, re-auth and retry ───────
+                if sim_resp.status_code == 401:
+                    sess = ensure_authed(sim_resp)
+                    sim_resp = sess.post(
+                        'https://api.worldquantbrain.com/simulations',
+                        json=api_payload,
+                    )
+
+                # ── Bug Fix 3c: 429 — rate limit, wait and retry ─────────────
+                # 429 means Brain is asking us to slow down.  We wait and retry
+                # the SAME alpha without counting it as a failure.
+                if sim_resp.status_code == 429:
+                    wait_sec = int(sim_resp.headers.get("Retry-After", 60))
+                    print(f"   ⏳ 429 Rate limit — waiting {wait_sec}s before retry...")
+                    time.sleep(wait_sec)
+                    sim_resp = sess.post(
+                        'https://api.worldquantbrain.com/simulations',
+                        json=api_payload,
+                    )
+
+                # ── Submission error (not 429/401) ───────────────────────────
                 if 'Location' not in sim_resp.headers:
                     err_msg = sim_resp.text
                     print(f"   ❌ Submit error ({sim_resp.status_code}): {err_msg}")
@@ -131,8 +232,12 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
                 # ── Poll until complete ──────────────────────────────────────
                 progress_url = sim_resp.headers['Location']
                 while True:
-                    prog_resp    = sess.get(progress_url)
-                    retry_after  = float(prog_resp.headers.get("Retry-After", 0))
+                    prog_resp   = sess.get(progress_url)
+                    # Check for 401 on polling too
+                    if prog_resp.status_code == 401:
+                        sess = ensure_authed(prog_resp)
+                        prog_resp = sess.get(progress_url)
+                    retry_after = float(prog_resp.headers.get("Retry-After", 0))
                     if retry_after == 0:
                         break
                     time.sleep(retry_after)
@@ -171,6 +276,9 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
                 if alpha_id:
                     ar = sess.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}")
+                    if ar.status_code == 401:
+                        sess = ensure_authed(ar)
+                        ar   = sess.get(f"https://api.worldquantbrain.com/alphas/{alpha_id}")
                     if ar.status_code == 200:
                         ad          = ar.json()
                         status      = ad.get("status", status)
@@ -209,19 +317,19 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
                 print()
 
                 row = {
-                    "expression":  expression,
-                    "group_label": group_label,
-                    "alpha_id":    alpha_id,
+                    "expression":    expression,
+                    "group_label":   group_label,
+                    "alpha_id":      alpha_id,
                     "settings_json": json.dumps(alpha.get("settings", {})),
-                    "status":      eval_status,
-                    "is_sharpe":   is_sharpe,
-                    "is_fitness":  is_fitness,
-                    "is_turnover": is_turnover,
-                    "is_margin":   is_margin,
-                    "is_quality":  is_quality,
-                    "elapsed_time": elapsed,
-                    "pass_count":  pass_count,
-                    "fail_count":  fail_count,
+                    "status":        eval_status,
+                    "is_sharpe":     is_sharpe,
+                    "is_fitness":    is_fitness,
+                    "is_turnover":   is_turnover,
+                    "is_margin":     is_margin,
+                    "is_quality":    is_quality,
+                    "elapsed_time":  elapsed,
+                    "pass_count":    pass_count,
+                    "fail_count":    fail_count,
                 }
                 results.append(row)
                 batch_results.append(row)

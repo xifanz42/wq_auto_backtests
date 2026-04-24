@@ -12,3 +12,5 @@ res
 *.pyc
 .venv/
 venv/
+config.json
+utils/fetch_submitted.py
