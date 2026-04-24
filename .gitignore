@@ -13,4 +13,7 @@ res
 .venv/
 venv/
 config.json
+
+# local utils
 utils/fetch_submitted.py
+utils/cleanup_db.py
