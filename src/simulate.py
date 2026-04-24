@@ -99,11 +99,13 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
             print(f"🧪 [{count}/{total}] Group='{group_label}'  |  {expression}")
 
+            api_payload = {k: v for k, v in alpha.items() if k != 'group_label'}
+
             alpha_start = time.time()
 
             sim_resp = sess.post(
                 'https://api.worldquantbrain.com/simulations',
-                json=alpha,
+                json=api_payload,
             )
 
             try:

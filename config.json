@@ -7,7 +7,6 @@
     },
 
     "alpha_groups": [
-
         {
             "label": "G1_vwap_momentum",
             "__econ__": "成交量加权价格动量：vwap近期均值高于远期均值说明机构资金在推动价格重心上移，在行业内横向比较找出动量最强股票做多。对应 Jegadeesh & Titman 1993。",
