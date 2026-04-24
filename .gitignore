@@ -1,0 +1,14 @@
+*.log
+__pycache__/
+.DS_Store
+node_modules/
+data/
+reports/
+results/
+res
+.env
+.vscode/
+.idea/
+*.pyc
+.venv/
+venv/

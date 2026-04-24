@@ -1,0 +1,204 @@
+{
+    "searchScope": {
+        "region": "USA",
+        "delay": "1",
+        "universe": "TOP3000",
+        "instrumentType": "EQUITY"
+    },
+
+    "alpha_groups": [
+
+        {
+            "label": "G1_vwap_momentum",
+            "__econ__": "成交量加权价格动量：vwap近期均值高于远期均值说明机构资金在推动价格重心上移，在行业内横向比较找出动量最强股票做多。对应 Jegadeesh & Titman 1993。",
+            "datasets": [
+                {
+                    "id": "pv1",
+                    "type_filter": "MATRIX",
+                    "alpha_count_filter": [null, null],
+                    "data_coverage_filter": [null, null],
+                    "coverage_filter": [null, null],
+                    "user_count_filter": [null, null],
+                    "field_name_patterns": ["^vwap$"],
+                    "field_name_exclude_patterns": null,
+                    "description_patterns": null,
+                    "description_exclude_patterns": null
+                }
+            ],
+            "alpha_templates": [
+                "group_rank(ts_mean({datafield}, 20) - ts_mean({datafield}, 60), sector)",
+                "group_rank(ts_rank({datafield}, 20), sector)",
+                "group_rank(ts_delta(ts_mean({datafield}, 5), 10), sector)"
+            ],
+            "simulation_settings": {
+                "instrumentType": "EQUITY",
+                "region": "USA",
+                "universe": "TOP3000",
+                "delay": 1,
+                "decay": 0,
+                "neutralization": "SECTOR",
+                "truncation": 0.08,
+                "pasteurization": "ON",
+                "unitHandling": "VERIFY",
+                "nanHandling": "ON",
+                "language": "FASTEXPR",
+                "visualization": false
+            }
+        },
+
+        {
+            "label": "G2_price_volume_divergence",
+            "__econ__": "量价背离反转：股价上涨但成交量萎缩是顶部信号，两者时序相关性越高说明趋势越不可持续，做空高相关、做多低相关。对应 Blume Easley O'Hara 1994。",
+            "datasets": [
+                {
+                    "id": "pv1",
+                    "type_filter": "MATRIX",
+                    "alpha_count_filter": [null, null],
+                    "data_coverage_filter": [null, null],
+                    "coverage_filter": [null, null],
+                    "user_count_filter": [null, null],
+                    "field_name_patterns": ["^close$"],
+                    "field_name_exclude_patterns": null,
+                    "description_patterns": null,
+                    "description_exclude_patterns": null
+                }
+            ],
+            "alpha_templates": [
+                "-group_rank(ts_corr(ts_delta({datafield}, 1), ts_delta(volume, 1), 10), sector)",
+                "-group_rank(ts_corr({datafield}, volume, 15), sector)",
+                "-group_rank(ts_corr(vwap, volume, 10), sector)"
+            ],
+            "simulation_settings": {
+                "instrumentType": "EQUITY",
+                "region": "USA",
+                "universe": "TOP3000",
+                "delay": 1,
+                "decay": 0,
+                "neutralization": "SECTOR",
+                "truncation": 0.08,
+                "pasteurization": "ON",
+                "unitHandling": "VERIFY",
+                "nanHandling": "ON",
+                "language": "FASTEXPR",
+                "visualization": false
+            }
+        },
+
+        {
+            "label": "G3_intraday_position_reversal",
+            "__econ__": "日内价格位置均值回归：收盘价处于当日高低价区间顶部说明超买，次日均值回归倾向，做空极端高位、做多极端低位。对应 Jegadeesh 1990 短期反转论文。",
+            "datasets": [
+                {
+                    "id": "pv1",
+                    "type_filter": "MATRIX",
+                    "alpha_count_filter": [null, null],
+                    "data_coverage_filter": [null, null],
+                    "coverage_filter": [null, null],
+                    "user_count_filter": [null, null],
+                    "field_name_patterns": ["^close$"],
+                    "field_name_exclude_patterns": null,
+                    "description_patterns": null,
+                    "description_exclude_patterns": null
+                }
+            ],
+            "alpha_templates": [
+                "-group_rank(ts_rank(({datafield} - low) / (high - low + 0.001), 10), sector)",
+                "-group_rank(ts_delta({datafield} / (high - low + 0.001), 5), sector)",
+                "-group_rank(ts_mean(({datafield} - open) / (high - low + 0.001), 10), sector)"
+            ],
+            "simulation_settings": {
+                "instrumentType": "EQUITY",
+                "region": "USA",
+                "universe": "TOP3000",
+                "delay": 1,
+                "decay": 0,
+                "neutralization": "SECTOR",
+                "truncation": 0.08,
+                "pasteurization": "ON",
+                "unitHandling": "VERIFY",
+                "nanHandling": "ON",
+                "language": "FASTEXPR",
+                "visualization": false
+            }
+        },
+
+        {
+            "label": "G4_volume_spike_reversal",
+            "__econ__": "成交量异常放大反转：成交量相对20日均量异常放大通常伴随散户情绪极端化，短期内会反转。对应 Campbell Grossman Wang 1993。",
+            "datasets": [
+                {
+                    "id": "pv1",
+                    "type_filter": "MATRIX",
+                    "alpha_count_filter": [null, null],
+                    "data_coverage_filter": [null, null],
+                    "coverage_filter": [null, null],
+                    "user_count_filter": [null, null],
+                    "field_name_patterns": ["^volume$"],
+                    "field_name_exclude_patterns": null,
+                    "description_patterns": null,
+                    "description_exclude_patterns": null
+                }
+            ],
+            "alpha_templates": [
+                "-group_rank(ts_rank({datafield} / adv20, 15), sector)",
+                "group_rank(ts_corr(ts_rank({datafield}, 5), ts_rank(close, 5), 10), sector)",
+                "-group_rank(ts_mean({datafield} / adv20, 5) * ts_delta(close, 5), sector)"
+            ],
+            "simulation_settings": {
+                "instrumentType": "EQUITY",
+                "region": "USA",
+                "universe": "TOP3000",
+                "delay": 1,
+                "decay": 0,
+                "neutralization": "SECTOR",
+                "truncation": 0.08,
+                "pasteurization": "ON",
+                "unitHandling": "VERIFY",
+                "nanHandling": "ON",
+                "language": "FASTEXPR",
+                "visualization": false
+            }
+        },
+
+        {
+            "label": "G5_overnight_gap_momentum",
+            "__econ__": "隔夜跳空动量延续：开盘价相对前日收盘的跳空幅度在行业内排名靠前，说明有重大隔夜利好驱动，日内动量往往延续。对应 Berkman et al 2012。",
+            "datasets": [
+                {
+                    "id": "pv1",
+                    "type_filter": "MATRIX",
+                    "alpha_count_filter": [null, null],
+                    "data_coverage_filter": [null, null],
+                    "coverage_filter": [null, null],
+                    "user_count_filter": [null, null],
+                    "field_name_patterns": ["^open$"],
+                    "field_name_exclude_patterns": null,
+                    "description_patterns": null,
+                    "description_exclude_patterns": null
+                }
+            ],
+            "alpha_templates": [
+                "group_rank(ts_mean({datafield} - delay(close, 1), 5), sector)",
+                "group_rank(ts_rank({datafield} - delay(close, 1), 20), sector)",
+                "group_rank(ts_delta({datafield} - delay(close, 1), 5), sector)"
+            ],
+            "simulation_settings": {
+                "instrumentType": "EQUITY",
+                "region": "USA",
+                "universe": "TOP3000",
+                "delay": 1,
+                "decay": 0,
+                "neutralization": "SECTOR",
+                "truncation": 0.08,
+                "pasteurization": "ON",
+                "unitHandling": "VERIFY",
+                "nanHandling": "ON",
+                "language": "FASTEXPR",
+                "visualization": false
+            }
+        }
+
+    ],
+
+    "save_interval": 10
+}
