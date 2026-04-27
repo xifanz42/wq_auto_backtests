@@ -14,6 +14,6 @@ res
 venv/
 config.json
 
-# local utils
-utils/fetch_submitted.py
+# local utils (testing only)
 utils/cleanup_db.py
+utils/fetch_alphas.py

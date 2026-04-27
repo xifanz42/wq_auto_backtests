@@ -41,7 +41,13 @@ def generate_markdown_report(results, config, overall_time, avg_time):
     ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path  = os.path.join(reports_dir, f"Backtest_Report_{ts}.md")
 
-    passed       = [r for r in results if r.get('status') == 'Success']
+    passed       =[r for r in results if r.get('status') == 'Success']
+    
+    # Smart naming based on if batch yielded any successful tests
+    prefix       = "Passed_Backtest_Report" if passed else "No_Pass_Backtest_Report"
+    ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path  = os.path.join(reports_dir, f"{prefix}_{ts}.md")
+
     total        = len(results)
     success_rate = (len(passed) / total * 100) if total > 0 else 0
     premium      = [p for p in passed
@@ -132,10 +138,8 @@ def generate_markdown_report(results, config, overall_time, avg_time):
         md += "\n"
 
     # ── All passed ───────────────────────────────────────────────────────────
-    md += "---\n\n## ✅ All Passed Alphas\n"
-    if not passed:
-        md += "\n_No alphas passed._\n"
-    else:
+    if passed:
+        md += "---\n\n## ✅ All Passed Alphas\n"
         md += TABLE_HEADER
         for p in passed:
             md += _alpha_table_row(p) + "\n"

@@ -1,5 +1,6 @@
 # src/simulate.py
 import time
+import datetime
 import os
 import json
 import sqlite3
@@ -114,7 +115,23 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
 
         # CSV mirror
         csv_path = os.path.join(results_dir, 'simulation_results.csv')
-        df.to_csv(csv_path, mode='a', header=not os.path.exists(csv_path), index=False)
+        if os.path.exists(csv_path) and os.path.getsize(csv_path) > 0:
+            try:
+                existing_cols = pd.read_csv(csv_path, nrows=0).columns.tolist()
+                new_cols =[c for c in df.columns if c not in existing_cols]
+                if new_cols:
+                    # Schema changed (e.g. adding dates to old results), rewrite to align columns
+                    old_df = pd.read_csv(csv_path)
+                    combined = pd.concat([old_df, df], ignore_index=True)
+                    combined.to_csv(csv_path, index=False)
+                else:
+                    # Append seamlessly
+                    df_aligned = df.reindex(columns=existing_cols)
+                    df_aligned.to_csv(csv_path, mode='a', header=False, index=False)
+            except pd.errors.EmptyDataError:
+                df.to_csv(csv_path, index=False)
+        else:
+            df.to_csv(csv_path, index=False)
 
         print(f"   💾 CHECKPOINT: saved {len(batch)} results to DB + CSV.")
 
@@ -316,6 +333,7 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
                 print(f"   Result    : {'✅ PASSED' if eval_status == 'Success' else '❌ FAILED'}")
                 print()
 
+                now_dt = datetime.datetime.now()
                 row = {
                     "expression":    expression,
                     "group_label":   group_label,
@@ -330,6 +348,8 @@ def simulate_alphas(sess, alpha_list, save_interval=10, authenticate_callback=No
                     "elapsed_time":  elapsed,
                     "pass_count":    pass_count,
                     "fail_count":    fail_count,
+                    "test_date":     now_dt.strftime("%Y-%m-%d"),
+                    "test_time":     now_dt.strftime("%H:%M:%S"),
                 }
                 results.append(row)
                 batch_results.append(row)
