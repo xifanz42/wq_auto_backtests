@@ -3,30 +3,19 @@ import os
 import datetime
 
 
-def format_time(seconds):
+# ── Formatting ────────────────────────────────────────────────────────────────
+
+def format_time(seconds: float) -> str:
     if seconds < 60:
         return f"{seconds:.2f} seconds"
-    m, s = divmod(seconds, 60)
+    m, s = divmod(int(seconds), 60)
     h, m = divmod(m, 60)
-    if h > 0:
-        return f"{int(h)} hours {int(m)} minutes {int(s)} seconds"
-    return f"{int(m)} minutes {int(s)} seconds"
+    return f"{h} hours {m} minutes {s} seconds" if h else f"{m} minutes {s} seconds"
 
 
-def _alpha_table_row(p):
-    expr    = p.get('expression', '').replace('|', '\\|')
-    return (
-        f"| {p.get('alpha_id','N/A')} "
-        f"| `{expr}` "
-        f"| **{p.get('is_quality','?')}** "
-        f"| {p.get('is_sharpe','N/A')} "
-        f"| {p.get('is_fitness','N/A')} "
-        f"| {p.get('is_turnover','N/A')} "
-        f"| {p.get('is_margin','N/A')} "
-        f"| {format_time(p.get('elapsed_time',0))} |"
-    )
+# ── Table helpers ─────────────────────────────────────────────────────────────
 
-TABLE_HEADER = (
+_TABLE_HEADER = (
     "| Alpha ID | Expression | Quality | Sharpe | Fitness "
     "| Turnover | Margin | Compute Time |\n"
     "|----------|------------|---------|--------|---------|"
@@ -34,53 +23,67 @@ TABLE_HEADER = (
 )
 
 
-def generate_markdown_report(results, config, overall_time, avg_time):
-    reports_dir = os.path.join(os.path.dirname(__file__), '..', 'reports')
+def _table_row(p: dict) -> str:
+    expr = p.get("expression", "").replace("|", "\\|")
+    return (
+        f"| {p.get('alpha_id', 'N/A')} "
+        f"| `{expr}` "
+        f"| **{p.get('is_quality', '?')}** "
+        f"| {p.get('is_sharpe', 'N/A')} "
+        f"| {p.get('is_fitness', 'N/A')} "
+        f"| {p.get('is_turnover', 'N/A')} "
+        f"| {p.get('is_margin', 'N/A')} "
+        f"| {format_time(p.get('elapsed_time', 0))} |"
+    )
+
+
+def _render_table(rows: list[dict]) -> str:
+    if not rows:
+        return "_No alphas passed._\n"
+    return _TABLE_HEADER + "\n".join(_table_row(r) for r in rows) + "\n"
+
+
+# ── Markdown report ───────────────────────────────────────────────────────────
+
+def generate_markdown_report(
+    results: list[dict],
+    config: dict,
+    overall_time: float,
+    avg_time: float,
+) -> str:
+    reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
     os.makedirs(reports_dir, exist_ok=True)
 
-    ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path  = os.path.join(reports_dir, f"Backtest_Report_{ts}.md")
+    passed  = [r for r in results if r.get("status") == "Success"]
+    premium = [p for p in passed
+               if p.get("is_quality") in ("Spectacular", "Excellent", "Good")]
 
-    passed       =[r for r in results if r.get('status') == 'Success']
-    
-    # Smart naming based on if batch yielded any successful tests
-    prefix       = "Passed_Backtest_Report" if passed else "No_Pass_Backtest_Report"
-    ts           = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path  = os.path.join(reports_dir, f"{prefix}_{ts}.md")
+    prefix      = "Passed_Backtest_Report" if passed else "No_Pass_Backtest_Report"
+    ts          = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = os.path.join(reports_dir, f"{prefix}_{ts}.md")
 
     total        = len(results)
-    success_rate = (len(passed) / total * 100) if total > 0 else 0
-    premium      = [p for p in passed
-                    if p.get('is_quality') in ('Spectacular', 'Excellent', 'Good')]
+    success_rate = (len(passed) / total * 100) if total else 0
 
-    # ── Collect all unique group labels in order ─────────────────────────────
-    seen   = []
-    groups = []
-    for r in results:
-        lbl = r.get('group_label', 'unlabeled')
-        if lbl not in seen:
-            seen.append(lbl)
-            groups.append(lbl)
-
-    # ── Header ───────────────────────────────────────────────────────────────
-    # Reconstruct templates display from alpha_groups if present, else fallback
-    alpha_groups = config.get('alpha_groups', [])
+    # Templates block
+    alpha_groups = config.get("alpha_groups", [])
     if alpha_groups:
         templates_block = ""
         for g in alpha_groups:
-            lbl = g.get('label', 'unlabeled')
-            templates_block += f"\n**Group: {lbl}**\n"
-            for t in g.get('alpha_templates', []):
+            templates_block += f"\n**Group: {g.get('label', 'unlabeled')}**\n"
+            for t in g.get("alpha_templates", []):
                 templates_block += f"- `{t}`\n"
     else:
         templates_block = "\n".join(
-            f"- `{t}`" for t in config.get('alpha_templates', []))
+            f"- `{t}`" for t in config.get("alpha_templates", [])
+        )
 
     datasets_block = "\n".join(
-        f"- {ds['id']} (Type: {ds.get('type_filter','All')})"
-        for ds in config.get('datasets', []))
+        f"- {ds['id']} (Type: {ds.get('type_filter', 'All')})"
+        for ds in config.get("datasets", [])
+    )
 
-    sim = config.get('simulation_settings', {})
+    sim = config.get("simulation_settings", {})
 
     md = f"""# WorldQuant Brain Alpha Backtest Report
 **Date Generated:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -109,61 +112,56 @@ def generate_markdown_report(results, config, overall_time, avg_time):
 ---
 """
 
-    # ── Premium section ───────────────────────────────────────────────────────
     if premium:
         md += "## 🌟 Premium Alphas (Good & Above)\n"
-        md += TABLE_HEADER
-        for p in premium:
-            md += _alpha_table_row(p) + "\n"
+        md += _render_table(premium)
         md += "\n---\n\n"
 
-    # ── Per-group breakdown ───────────────────────────────────────────────────
+    # Per-group breakdown
     md += "## 📊 Results by Group\n\n"
-    for lbl in groups:
-        group_results = [r for r in results if r.get('group_label') == lbl]
-        group_passed  = [r for r in group_results if r.get('status') == 'Success']
-        rate = (len(group_passed) / len(group_results) * 100) if group_results else 0
+    seen_groups: list[str] = []
+    for r in results:
+        lbl = r.get("group_label", "unlabeled")
+        if lbl not in seen_groups:
+            seen_groups.append(lbl)
 
-        md += f"### Group: `{lbl}`\n"
-        md += (f"Tested: {len(group_results)}  |  "
-               f"Passed: {len(group_passed)}  |  "
-               f"Pass rate: {rate:.1f}%\n\n")
-
-        if group_passed:
-            md += TABLE_HEADER
-            for p in group_passed:
-                md += _alpha_table_row(p) + "\n"
-        else:
-            md += "_No alphas passed in this group._\n"
+    for lbl in seen_groups:
+        group_all    = [r for r in results if r.get("group_label") == lbl]
+        group_passed = [r for r in group_all  if r.get("status") == "Success"]
+        rate = (len(group_passed) / len(group_all) * 100) if group_all else 0
+        md += (
+            f"### Group: `{lbl}`\n"
+            f"Tested: {len(group_all)}  |  Passed: {len(group_passed)}  |  "
+            f"Pass rate: {rate:.1f}%\n\n"
+        )
+        md += _render_table(group_passed)
         md += "\n"
 
-    # ── All passed ───────────────────────────────────────────────────────────
     if passed:
         md += "---\n\n## ✅ All Passed Alphas\n"
-        md += TABLE_HEADER
-        for p in passed:
-            md += _alpha_table_row(p) + "\n"
+        md += _render_table(passed)
 
-    with open(report_path, 'w', encoding='utf-8') as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(md)
 
     print(f"\n📄 Report saved: {report_path}")
     return report_path
 
 
-def generate_error_report(breaker_info, overall_time):
-    reports_dir = os.path.join(os.path.dirname(__file__), '..', 'reports')
+# ── Error report ──────────────────────────────────────────────────────────────
+
+def generate_error_report(breaker_info: dict, overall_time: float) -> str:
+    reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
     os.makedirs(reports_dir, exist_ok=True)
 
     ts          = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = os.path.join(reports_dir, f"Error_Report_{ts}.md")
 
-    error_section = ""
-    for i, entry in enumerate(breaker_info.get("log", []), 1):
-        error_section += (
-            f"**Failed Formula {i}:**\n```\n{entry.get('expression','')}\n```\n"
-            f"**Error:** {entry.get('error','')}\n\n---\n\n"
-        )
+    error_section = "\n".join(
+        f"**Failed Formula {i}:**\n```\n{e.get('expression', '')}\n```\n"
+        f"**Error:** {e.get('error', '')}\n\n---"
+        for i, e in enumerate(breaker_info.get("log", []), 1)
+    )
 
     md = f"""# 🚨 Alpha Error Report
 **Date:** {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
@@ -175,7 +173,7 @@ def generate_error_report(breaker_info, overall_time):
 ## Failure Log
 {error_section}
 """
-    with open(report_path, 'w', encoding='utf-8') as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(md)
 
     print(f"\n🚨 Error report saved: {report_path}")
